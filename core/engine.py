@@ -1,196 +1,121 @@
-"""
-ImportEngine
+from pathlib import Path
+from typing import Any, List
 
-Core ETL engine used by Universal Data Importer.
-"""
+from plugins.plugin_registry import detect_plugin
+from loaders.loader_registry import get_loader
 
-import pandas as pd
+from core.exceptions import (
+    UnsupportedFormatError,
+    ImportExecutionError,
+)
 
-from loaders.sqlite_loader import SQLiteLoader
-from config.settings import PREVIEW_ROWS, BATCH_SIZE, SQLITE_DB_PATH, DEFAULT_TABLE_NAME
+from utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class ImportEngine:
 
-    def __init__(
+    def __init__(self):
+        self.plugin = None
+        self.schema = None
+
+    # -----------------------------------
+    # Detect file format
+    # -----------------------------------
+
+    def detect_format(self, file_path: Path):
+
+        logger.info(f"Detecting format for {file_path}")
+
+        plugin = detect_plugin(file_path)
+
+        if not plugin:
+            raise UnsupportedFormatError(
+                f"Unsupported file format: {file_path}"
+            )
+
+        self.plugin = plugin
+
+        logger.info(f"Detected plugin: {plugin.name}")
+
+        return plugin.name
+
+    # -----------------------------------
+    # Load preview
+    # -----------------------------------
+
+    def load_preview(self, file_path: Path, rows: int = 100):
+
+        if not self.plugin:
+            self.detect_format(file_path)
+
+        logger.info("Loading preview")
+
+        preview = self.plugin.read_preview(file_path, rows)
+
+        return preview
+
+    # -----------------------------------
+    # Detect schema
+    # -----------------------------------
+
+    def detect_schema(self, preview_data):
+
+        if not self.plugin:
+            raise RuntimeError("Plugin not initialized")
+
+        logger.info("Detecting schema")
+
+        schema = self.plugin.detect_schema(preview_data)
+
+        self.schema = schema
+
+        return schema
+
+    # -----------------------------------
+    # Run import
+    # -----------------------------------
+
+    def run_import(
         self,
-        state,
-        progress_callback=None,
-        log_callback=None,
+        file_path: Path,
+        loader_type: str,
+        connection_config: dict,
+        table_name: str,
+        mapping: List[dict],
     ):
 
-        self.state = state
+        try:
 
-        self.progress = progress_callback
-        self.log = log_callback
+            if not self.plugin:
+                self.detect_format(file_path)
 
-        self.file_path = state["file_path"]
-        self.file_format = state["format"]
+            logger.info("Reading full dataset")
 
-        self.schema = state["schema"]
-        self.mapping = state["mapping"]
+            data = self.plugin.read_full(file_path)
 
-        self.loader = None
+            loader_class = get_loader(loader_type)
 
-    # --------------------------------------------------
+            if not loader_class:
+                raise ImportExecutionError(
+                    f"Unknown loader: {loader_type}"
+                )
 
-    def run(self):
+            loader = loader_class(connection_config)
 
-        """
-        Execute the full import process.
-        """
+            logger.info("Executing import")
 
-        self._log("Starting import engine")
+            loader.load_data(
+                data=data,
+                table_name=table_name,
+                mapping=mapping,
+            )
 
-        # Create loader
-        self.loader = SQLiteLoader(
-            db_path=SQLITE_DB_PATH,
-            table_name=DEFAULT_TABLE_NAME,
-            schema=self.schema,
-            log_callback=self.log
-        )
+            logger.info("Import completed")
 
-        self.loader.connect()
-        self.loader.create_table()
+        except Exception as e:
 
-        df = self.load_source()
+            logger.exception("Import failed")
 
-        df = self.apply_mapping(df)
-
-        df = self.apply_transforms(df)
-
-        rows, errors = self.batch_insert(df)
-
-        self.loader.close()
-
-        self._log("Import completed")
-
-        return rows, errors
-
-    # --------------------------------------------------
-
-    def load_source(self):
-
-        self._log(f"Loading source file: {self.file_path}")
-
-        if self.file_format == "csv":
-            df = pd.read_csv(self.file_path)
-
-        elif self.file_format == "excel":
-            df = pd.read_excel(self.file_path)
-
-        elif self.file_format == "json":
-            df = pd.read_json(self.file_path)
-
-        elif self.file_format == "xml":
-            df = pd.read_xml(self.file_path)
-
-        else:
-            raise ValueError(f"Unsupported format: {self.file_format}")
-
-        self._log(f"Loaded {len(df)} rows")
-
-        return df
-
-    # --------------------------------------------------
-
-    def apply_mapping(self, df):
-
-        self._log("Applying column mapping")
-
-        rename_map = {}
-
-        for m in self.mapping:
-
-            source = m["source"]
-            target = m["target"]
-
-            if target:
-                rename_map[source] = target
-
-        df = df.rename(columns=rename_map)
-
-        return df
-
-    # --------------------------------------------------
-
-    def apply_transforms(self, df):
-
-        self._log("Applying transformations")
-
-        for m in self.mapping:
-
-            col = m["target"]
-            transform = m["transform"]
-
-            if not col or col not in df.columns:
-                continue
-
-            if transform == "TRIM":
-                df[col] = df[col].astype(str).str.strip()
-
-            elif transform == "LOWER":
-                df[col] = df[col].astype(str).str.lower()
-
-            elif transform == "UPPER":
-                df[col] = df[col].astype(str).str.upper()
-
-            elif transform == "INT":
-                df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
-
-            elif transform == "FLOAT":
-                df[col] = pd.to_numeric(df[col], errors="coerce")
-
-            elif transform == "BOOLEAN":
-                df[col] = df[col].astype(bool)
-
-        return df
-
-    # --------------------------------------------------
-
-    def batch_insert(self, df, batch_size=BATCH_SIZE):
-
-        self._log("Starting batch insert")
-
-        total = len(df)
-
-        processed = 0
-        errors = 0
-
-        for start in range(0, total, batch_size):
-
-            batch = df.iloc[start : start + batch_size]
-
-            try:
-
-                self.insert_batch(batch)
-
-                processed += len(batch)
-
-            except Exception as e:
-
-                errors += len(batch)
-
-                self._log(f"Batch error: {str(e)}")
-
-            percent = int((processed / total) * 100)
-
-            if self.progress:
-                self.progress(percent)
-
-        return processed, errors
-
-    # --------------------------------------------------
-
-    def insert_batch(self, batch_df):
-
-        rows = batch_df.to_dict(orient="records")
-
-        self.loader.insert_batch(rows)
-
-    # --------------------------------------------------
-
-    def _log(self, message):
-
-        if self.log:
-            self.log(message)
+            raise ImportExecutionError(str(e)) from e
