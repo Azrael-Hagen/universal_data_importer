@@ -1,79 +1,74 @@
-from pathlib import Path
-from typing import Any
+"""
+CSV Plugin
+----------
 
-import pandas as pd
+Plugin para leer archivos CSV.
+
+Características:
+
+- lectura streaming
+- batch processing
+- encoding configurable
+- delimitador configurable
+"""
+
+import csv
+from typing import Iterator, Dict, Any, List
 
 from plugins.base_plugin import BasePlugin
-from core.models import Schema, ColumnInfo
+from plugins.plugin_registry import PluginRegistry
+from core.exceptions import PluginError
 
 
 class CSVPlugin(BasePlugin):
 
     name = "csv"
 
-    # --------------------------------------------------
-    # Detection
-    # --------------------------------------------------
+    def __init__(self, file_path: str, delimiter: str = ",", encoding: str = "utf-8"):
+        self.file_path = file_path
+        self.delimiter = delimiter
+        self.encoding = encoding
 
-    def detect(self, file_path: Path) -> bool:
+    # ---------------------------------------------------------
 
-        return file_path.suffix.lower() == ".csv"
+    def read_rows(self) -> Iterator[Dict[str, Any]]:
+        """
+        Lee el CSV fila por fila.
+        """
 
-    # --------------------------------------------------
-    # Supported extensions
-    # --------------------------------------------------
+        try:
 
-    def supported_extensions(self):
+            with open(self.file_path, "r", encoding=self.encoding, newline="") as f:
 
-        return [".csv"]
+                reader = csv.DictReader(f, delimiter=self.delimiter)
 
-    # --------------------------------------------------
-    # Preview
-    # --------------------------------------------------
+                for row in reader:
+                    yield row
 
-    def read_preview(self, file_path: Path, rows: int = 100) -> Any:
+        except Exception as e:
+            raise PluginError(f"Error leyendo CSV: {e}")
 
-        df = pd.read_csv(file_path, nrows=rows)
+    # ---------------------------------------------------------
 
-        return df
+    def read_batches(self, batch_size: int) -> Iterator[List[Dict[str, Any]]]:
+        """
+        Devuelve batches de filas.
+        """
 
-    # --------------------------------------------------
-    # Full dataset
-    # --------------------------------------------------
+        batch = []
 
-    def read_full(self, file_path: Path) -> Any:
+        for row in self.read_rows():
 
-        df = pd.read_csv(file_path)
+            batch.append(row)
 
-        return df
+            if len(batch) >= batch_size:
 
-    # --------------------------------------------------
-    # Schema detection
-    # --------------------------------------------------
+                yield batch
+                batch = []
 
-    def detect_schema(self, data: Any) -> Schema:
+        if batch:
+            yield batch
 
-        columns = []
 
-        for col in data.columns:
-
-            dtype = str(data[col].dtype)
-
-            sample_values = (
-                data[col]
-                .dropna()
-                .astype(str)
-                .head(5)
-                .tolist()
-            )
-
-            column = ColumnInfo(
-                name=col,
-                dtype=dtype,
-                nullable=data[col].isnull().any(),
-                sample_values=sample_values
-            )
-
-            columns.append(column)
-
-        return Schema(columns=columns)
+# registrar plugin
+PluginRegistry.register("csv", CSVPlugin)
