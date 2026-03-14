@@ -1,3 +1,6 @@
+from plugins.csv_plugin import CSVPlugin
+from plugins.base_plugin import BasePlugin
+from plugins.base_plugin import PluginError
 # gui/plugins/csv_plugin.py
 import csv
 from .base_plugin import BasePlugin, PluginError

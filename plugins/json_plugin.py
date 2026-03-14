@@ -1,3 +1,6 @@
+from plugins.json_plugin import JSONPlugin
+from plugins.base_plugin import BasePlugin
+from plugins.base_plugin import PluginError
 # gui/plugins/json_plugin.py
 import pandas as pd
 from .base_plugin import BasePlugin, PluginError

@@ -1,3 +1,4 @@
+from gui.pages.import_page import ImportPage
 from PySide6.QtWidgets import (
     QWizardPage,
     QVBoxLayout,

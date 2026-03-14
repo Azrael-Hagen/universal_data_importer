@@ -1,3 +1,4 @@
+from core.engine import ImportEngine
 """
 Import Engine
 -------------
@@ -12,7 +13,7 @@ from core.import_job import ImportJob
 from plugins.plugin_registry import PluginRegistry
 from loaders.loader_registry import LoaderRegistry
 from utils.progress import ProgressTracker
-from core.exceptions import LoaderError, PluginError
+from core.exceptions import ImporterError
 
 class ImportEngine:
     """

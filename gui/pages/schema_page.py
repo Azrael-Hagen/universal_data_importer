@@ -1,3 +1,5 @@
+from gui.pages.schema_page import SchemaPage
+from core.models import Schema
 """
 SchemaPage
 

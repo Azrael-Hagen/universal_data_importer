@@ -1,7 +1,9 @@
+from core.models import Schema
+from main import UniversalDataImporterWizard
 import sys
 from PySide6.QtWidgets import QApplication, QWizard, QFileDialog, QMessageBox
 
-from gui.pages.preview_page import PreviewPage
+from gui.pages.preview_page import SchemaTableModel
 from gui.pages.schema_page import SchemaPage
 from gui.pages.mapping_page import MappingPage
 from gui.pages.import_page import ImportPage

@@ -1,3 +1,6 @@
+from plugins.excel_plugin import ExcelPlugin
+from plugins.base_plugin import BasePlugin
+from plugins.base_plugin import PluginError
 # gui/plugins/excel_plugin.py
 import pandas as pd
 from .base_plugin import BasePlugin, PluginError

@@ -1,3 +1,6 @@
+from plugins.xml_plugin import XMLPlugin
+from plugins.base_plugin import BasePlugin
+from plugins.base_plugin import PluginError
 # gui/plugins/xml_plugin.py
 import xml.etree.ElementTree as ET
 from .base_plugin import BasePlugin, PluginError

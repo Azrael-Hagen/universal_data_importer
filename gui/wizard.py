@@ -1,3 +1,5 @@
+from gui.wizard import ImportWizard
+from core.models import Schema
 """
 Wizard controller for Universal Data Importer GUI.
 
@@ -10,12 +12,12 @@ from PySide6.QtWidgets import (
 )
 
 from gui.pages.file_select_page import FileSelectPage
-from gui.pages.preview_page import PreviewPage
+from gui.pages.preview_page import SchemaTableModel
 from gui.pages.schema_page import SchemaPage
 from gui.pages.mapping_page import MappingPage
 from gui.pages.import_page import ImportPage
 
-from core.format_detector import detect_format
+from core.format_detector import DetectionResult
 from core.schema_detector import SchemaDetector
 
 import pandas as pd

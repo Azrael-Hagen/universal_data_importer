@@ -1,3 +1,5 @@
+from core.format_detector import FormatDetector
+from core.format_detector import DetectionResult
 import os
 import csv
 import zipfile

@@ -1,3 +1,5 @@
+from plugins.base_plugin import BasePlugin
+from plugins.base_plugin import PluginError
 # gui/plugins/base_plugin.py
 from abc import ABC, abstractmethod
 

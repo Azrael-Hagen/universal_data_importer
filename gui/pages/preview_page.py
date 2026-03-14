@@ -1,3 +1,6 @@
+from gui.pages.schema_page import SchemaPage
+from gui.pages.preview_page import SchemaTableModel
+from core.models import Schema
 from PySide6.QtWidgets import (
     QWizardPage,
     QVBoxLayout,

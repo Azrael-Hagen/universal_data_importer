@@ -1,3 +1,4 @@
+from core.import_job import ImportJob
 """
 Import Job
 ----------

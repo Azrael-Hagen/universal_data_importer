@@ -1,3 +1,4 @@
+from gui.dialogs.db_connection_dialog import DBConnectionDialog
 from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,

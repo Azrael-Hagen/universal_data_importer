@@ -1,3 +1,8 @@
+from plugins.xml_plugin import XMLPlugin
+from plugins.plugin_registry import PluginRegistry
+from plugins.json_plugin import JSONPlugin
+from plugins.excel_plugin import ExcelPlugin
+from plugins.csv_plugin import CSVPlugin
 # gui/plugins/plugin_registry.py
 from .csv_plugin import CSVPlugin
 from .excel_plugin import ExcelPlugin

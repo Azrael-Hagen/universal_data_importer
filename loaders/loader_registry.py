@@ -1,3 +1,4 @@
+from loaders.loader_registry import LoaderRegistry
 """
 Loader Registry
 ---------------
@@ -17,7 +18,7 @@ Ejemplo:
 
 from typing import Dict, Type
 
-from core.exceptions import LoaderError
+from core.exceptions import ImporterError
 
 
 class LoaderRegistry:

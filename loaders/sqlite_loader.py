@@ -1,3 +1,4 @@
+from loaders.sqlite_loader import SQLiteLoader
 """
 SQLite Loader
 -------------
@@ -14,7 +15,7 @@ import sqlite3
 from pathlib import Path
 from typing import Iterable, Dict, Any, List
 
-from core.exceptions import LoaderError
+from core.exceptions import ImporterError
 
 
 class SQLiteLoader:

@@ -1,3 +1,4 @@
+from gui.pages.file_selection_page import FileSelectionPage
 from PySide6.QtWidgets import (
     QWizardPage,
     QLabel,
