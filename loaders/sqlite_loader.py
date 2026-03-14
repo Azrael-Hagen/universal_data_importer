@@ -1,140 +1,140 @@
 """
-SQLiteLoader
+SQLite Loader
+-------------
 
-Database loader used by Universal Data Importer
-to insert data into SQLite databases.
+Loader encargado de insertar datos en una base SQLite.
+
+Implementa operaciones básicas:
+- conexión
+- creación opcional de tabla
+- inserción de registros
 """
 
 import sqlite3
+from pathlib import Path
+from typing import Iterable, Dict, Any, List
+
+from core.exceptions import LoaderError
 
 
 class SQLiteLoader:
+    """
+    Loader para SQLite.
 
-    def __init__(self, db_path, table_name, schema, log_callback=None):
+    connection_string ejemplo:
+        sqlite:///ruta/a/archivo.db
+    """
 
-        self.db_path = db_path
-        self.table_name = table_name
-        self.schema = schema
+    def __init__(self, connection_string: str):
+        self.connection_string = connection_string
+        self.connection = None
 
-        self.log = log_callback
-
-        self.conn = None
-        self.cursor = None
-
-    # --------------------------------------------------
+    # ---------------------------------------------------------
+    # conexión
+    # ---------------------------------------------------------
 
     def connect(self):
-
-        self.conn = sqlite3.connect(self.db_path)
-
-        self.cursor = self.conn.cursor()
-
-        self._log(f"Connected to SQLite: {self.db_path}")
-
-    # --------------------------------------------------
-
-    def create_table(self):
-
         """
-        Create table using detected schema.
+        Abre conexión SQLite.
         """
 
-        columns = self.schema["columns"]
+        try:
+            db_path = self._parse_connection_string(self.connection_string)
 
-        column_defs = []
+            Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
-        for col in columns:
+            self.connection = sqlite3.connect(db_path)
 
-            name = col["target_name"]
-            dtype = self.sqlite_type(col["type"])
+        except Exception as e:
+            raise LoaderError(f"Error conectando a SQLite: {e}")
 
-            col_def = f'"{name}" {dtype}'
+    # ---------------------------------------------------------
 
-            if col.get("primary_key"):
-                col_def += " PRIMARY KEY"
+    def close(self):
+        if self.connection:
+            self.connection.close()
 
-            if not col.get("nullable", True):
-                col_def += " NOT NULL"
+    # ---------------------------------------------------------
+    # insertar registros
+    # ---------------------------------------------------------
 
-            column_defs.append(col_def)
+    def insert_rows(
+        self,
+        table_name: str,
+        rows: Iterable[Dict[str, Any]],
+        create_if_missing: bool = True
+    ):
+        """
+        Inserta filas en la tabla.
 
-        sql = f"""
-        CREATE TABLE IF NOT EXISTS "{self.table_name}" (
-            {", ".join(column_defs)}
-        )
+        rows debe ser iterable de dicts
         """
 
-        self.cursor.execute(sql)
-
-        self.conn.commit()
-
-        self._log(f"Table ready: {self.table_name}")
-
-    # --------------------------------------------------
-
-    def insert_batch(self, rows):
-
-        """
-        Insert batch of rows into table.
-        """
+        rows = list(rows)
 
         if not rows:
             return
 
-        columns = rows[0].keys()
+        cursor = self.connection.cursor()
 
-        placeholders = ",".join(["?"] * len(columns))
+        columns = list(rows[0].keys())
 
-        sql = f"""
-        INSERT INTO "{self.table_name}"
-        ({",".join(columns)})
+        if create_if_missing:
+            self._ensure_table(cursor, table_name, columns)
+
+        placeholders = ", ".join(["?"] * len(columns))
+        column_sql = ", ".join(columns)
+
+        query = f"""
+        INSERT INTO {table_name} ({column_sql})
         VALUES ({placeholders})
         """
 
-        values = []
+        values = [
+            tuple(row.get(col) for col in columns)
+            for row in rows
+        ]
 
-        for row in rows:
+        try:
+            cursor.executemany(query, values)
+            self.connection.commit()
 
-            values.append(tuple(row[c] for c in columns))
+        except Exception as e:
+            raise LoaderError(f"Error insertando filas: {e}")
 
-        self.cursor.executemany(sql, values)
+    # ---------------------------------------------------------
+    # crear tabla automática
+    # ---------------------------------------------------------
 
-        self.conn.commit()
-
-    # --------------------------------------------------
-
-    def sqlite_type(self, dtype):
-
+    def _ensure_table(self, cursor, table_name: str, columns: List[str]):
         """
-        Convert generic types to SQLite types.
+        Crea tabla si no existe.
+
+        Por ahora todos los campos TEXT.
         """
 
-        mapping = {
-            "INTEGER": "INTEGER",
-            "FLOAT": "REAL",
-            "BOOLEAN": "INTEGER",
-            "TEXT": "TEXT",
-            "DATE": "TEXT",
-            "DATETIME": "TEXT",
-            "JSON": "TEXT",
-            "BLOB": "BLOB",
-        }
+        cols_sql = ", ".join(f"{c} TEXT" for c in columns)
 
-        return mapping.get(dtype, "TEXT")
+        query = f"""
+        CREATE TABLE IF NOT EXISTS {table_name} (
+            {cols_sql}
+        )
+        """
 
-    # --------------------------------------------------
+        cursor.execute(query)
 
-    def close(self):
+    # ---------------------------------------------------------
+    # utils
+    # ---------------------------------------------------------
 
-        if self.conn:
+    def _parse_connection_string(self, conn: str) -> str:
+        """
+        Convierte:
 
-            self.conn.close()
+        sqlite:///data/test.db
+        """
 
-            self._log("SQLite connection closed")
+        if not conn.startswith("sqlite:///"):
+            raise LoaderError("Connection string SQLite inválido")
 
-    # --------------------------------------------------
-
-    def _log(self, msg):
-
-        if self.log:
-            self.log(msg)
+        return conn.replace("sqlite:///", "")
