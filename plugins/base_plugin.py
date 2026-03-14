@@ -1,85 +1,30 @@
+# gui/plugins/base_plugin.py
 from abc import ABC, abstractmethod
-from pathlib import Path
-from typing import Any
 
-from core.models import Schema
-
+class PluginError(Exception):
+    """Error específico de plugins de importación."""
+    pass
 
 class BasePlugin(ABC):
     """
-    Base class for all file format plugins.
+    Clase base para todos los plugins de importación.
     """
 
-    name: str = "base"
-
-    # --------------------------------------------------
-    # Format detection
-    # --------------------------------------------------
+    def __init__(self, file_path: str):
+        self.file_path = file_path
 
     @abstractmethod
-    def detect(self, file_path: Path) -> bool:
+    def read_rows(self):
         """
-        Determine if this plugin can handle the file.
+        Debe devolver un iterador de diccionarios por fila.
+        Lanzar PluginError en caso de problemas.
         """
         pass
 
-    # --------------------------------------------------
-    # Preview loading
-    # --------------------------------------------------
-
+    @staticmethod
     @abstractmethod
-    def read_preview(self, file_path: Path, rows: int = 100) -> Any:
+    def detect(file_path: str) -> bool:
         """
-        Load a preview of the dataset.
-
-        Returns:
-            Typically a pandas DataFrame or list of dicts.
+        Retorna True si este plugin puede manejar el archivo.
         """
         pass
-
-    # --------------------------------------------------
-    # Full dataset loading
-    # --------------------------------------------------
-
-    @abstractmethod
-    def read_full(self, file_path: Path) -> Any:
-        """
-        Load the entire dataset.
-        """
-        pass
-
-    # --------------------------------------------------
-    # Schema detection
-    # --------------------------------------------------
-
-    @abstractmethod
-    def detect_schema(self, data: Any) -> Schema:
-        """
-        Infer the dataset schema.
-        """
-        pass
-
-    # --------------------------------------------------
-    # Optional metadata
-    # --------------------------------------------------
-
-    def supported_extensions(self):
-
-        """
-        Returns supported file extensions.
-
-        Example:
-        ['.csv']
-        """
-
-        return []
-
-    # --------------------------------------------------
-    # Optional validation
-    # --------------------------------------------------
-
-    def validate(self, file_path: Path) -> bool:
-        """
-        Optional file validation before reading.
-        """
-        return True

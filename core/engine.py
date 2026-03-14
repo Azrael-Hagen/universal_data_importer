@@ -1,121 +1,105 @@
-from pathlib import Path
-from typing import Any, List
+"""
+Import Engine
+-------------
 
-from plugins.plugin_registry import detect_plugin
-from loaders.loader_registry import get_loader
+Orquesta todo el proceso de importación de datos:
 
-from core.exceptions import (
-    UnsupportedFormatError,
-    ImportExecutionError,
-)
+PLUGIN → ENGINE → LOADER
+"""
 
-from utils.logger import get_logger
-
-logger = get_logger(__name__)
-
+from typing import Optional, Callable, List, Dict
+from core.import_job import ImportJob
+from plugins.plugin_registry import PluginRegistry
+from loaders.loader_registry import LoaderRegistry
+from utils.progress import ProgressTracker
+from core.exceptions import LoaderError, PluginError
 
 class ImportEngine:
+    """
+    Motor principal de importación.
+    """
 
-    def __init__(self):
-        self.plugin = None
-        self.schema = None
-
-    # -----------------------------------
-    # Detect file format
-    # -----------------------------------
-
-    def detect_format(self, file_path: Path):
-
-        logger.info(f"Detecting format for {file_path}")
-
-        plugin = detect_plugin(file_path)
-
-        if not plugin:
-            raise UnsupportedFormatError(
-                f"Unsupported file format: {file_path}"
-            )
-
-        self.plugin = plugin
-
-        logger.info(f"Detected plugin: {plugin.name}")
-
-        return plugin.name
-
-    # -----------------------------------
-    # Load preview
-    # -----------------------------------
-
-    def load_preview(self, file_path: Path, rows: int = 100):
-
-        if not self.plugin:
-            self.detect_format(file_path)
-
-        logger.info("Loading preview")
-
-        preview = self.plugin.read_preview(file_path, rows)
-
-        return preview
-
-    # -----------------------------------
-    # Detect schema
-    # -----------------------------------
-
-    def detect_schema(self, preview_data):
-
-        if not self.plugin:
-            raise RuntimeError("Plugin not initialized")
-
-        logger.info("Detecting schema")
-
-        schema = self.plugin.detect_schema(preview_data)
-
-        self.schema = schema
-
-        return schema
-
-    # -----------------------------------
-    # Run import
-    # -----------------------------------
-
-    def run_import(
+    def __init__(
         self,
-        file_path: Path,
-        loader_type: str,
-        connection_config: dict,
-        table_name: str,
-        mapping: List[dict],
+        progress_callback: Optional[Callable] = None,
+        log_callback: Optional[Callable] = None,
     ):
+        self.progress_callback = progress_callback
+        self.log_callback = log_callback
 
-        try:
+    # -----------------------------------------------------
+    # logging
+    # -----------------------------------------------------
 
-            if not self.plugin:
-                self.detect_format(file_path)
+    def _log(self, message: str):
+        if self.log_callback:
+            self.log_callback(message)
+        else:
+            print(message)
 
-            logger.info("Reading full dataset")
+    # -----------------------------------------------------
+    # run
+    # -----------------------------------------------------
 
-            data = self.plugin.read_full(file_path)
+    def run(self, job: ImportJob):
+        """
+        Ejecuta un ImportJob completo.
+        """
 
-            loader_class = get_loader(loader_type)
+        self._log(f"Starting import job: {job.table_name}")
 
-            if not loader_class:
-                raise ImportExecutionError(
-                    f"Unknown loader: {loader_type}"
-                )
+        # Crear instancia del plugin
+        plugin = PluginRegistry.create(
+            job.source_plugin,
+            **job.source_config
+        )
 
-            loader = loader_class(connection_config)
+        self._log(f"Loaded plugin: {job.source_plugin}")
 
-            logger.info("Executing import")
+        # Crear instancia del loader
+        loader = LoaderRegistry.create(
+            job.destination_loader,
+            **job.destination_config
+        )
 
-            loader.load_data(
-                data=data,
-                table_name=table_name,
-                mapping=mapping,
-            )
+        self._log(f"Loaded loader: {job.destination_loader}")
 
-            logger.info("Import completed")
+        # Conectar loader si tiene método connect()
+        if hasattr(loader, "connect"):
+            loader.connect()
 
-        except Exception as e:
+        total_rows = 0
+        errors = 0
 
-            logger.exception("Import failed")
+        # Configurar tracker de progreso
+        tracker = ProgressTracker(callback=self.progress_callback)
 
-            raise ImportExecutionError(str(e)) from e
+        # Leer en batches si el plugin lo soporta
+        batch_method = getattr(plugin, "read_batches", None)
+        if batch_method:
+            for batch in plugin.read_batches(job.batch_size):
+                try:
+                    loader.insert_rows(job.table_name, batch)
+                    total_rows += len(batch)
+                    tracker.update(len(batch))
+                except Exception as e:
+                    self._log(f"Error inserting batch: {e}")
+                    errors += len(batch)
+        else:
+            # fallback a read_rows()
+            for row in plugin.read_rows():
+                try:
+                    loader.insert_rows(job.table_name, [row])
+                    total_rows += 1
+                    tracker.update(1)
+                except Exception as e:
+                    self._log(f"Error inserting row: {e}")
+                    errors += 1
+
+        # cerrar loader si tiene método close()
+        if hasattr(loader, "close"):
+            loader.close()
+
+        self._log(f"Import completed: {total_rows} rows processed, {errors} errors")
+
+        return total_rows, errors

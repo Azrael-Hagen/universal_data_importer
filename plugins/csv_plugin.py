@@ -1,74 +1,24 @@
-"""
-CSV Plugin
-----------
-
-Plugin para leer archivos CSV.
-
-Características:
-
-- lectura streaming
-- batch processing
-- encoding configurable
-- delimitador configurable
-"""
-
+# gui/plugins/csv_plugin.py
 import csv
-from typing import Iterator, Dict, Any, List
-
-from plugins.base_plugin import BasePlugin
-from plugins.plugin_registry import PluginRegistry
-from core.exceptions import PluginError
-
+from .base_plugin import BasePlugin, PluginError
 
 class CSVPlugin(BasePlugin):
 
-    name = "csv"
-
-    def __init__(self, file_path: str, delimiter: str = ",", encoding: str = "utf-8"):
-        self.file_path = file_path
-        self.delimiter = delimiter
-        self.encoding = encoding
-
-    # ---------------------------------------------------------
-
-    def read_rows(self) -> Iterator[Dict[str, Any]]:
-        """
-        Lee el CSV fila por fila.
-        """
-
+    def read_rows(self):
         try:
-
-            with open(self.file_path, "r", encoding=self.encoding, newline="") as f:
-
-                reader = csv.DictReader(f, delimiter=self.delimiter)
-
+            with open(self.file_path, newline='', encoding='utf-8') as f:
+                reader = csv.DictReader(f)
+                if reader.fieldnames is None:
+                    raise PluginError("CSV sin encabezados o vacío")
                 for row in reader:
-                    yield row
-
+                    yield dict(row)
+        except FileNotFoundError:
+            raise PluginError(f"Archivo no encontrado: {self.file_path}")
+        except UnicodeDecodeError:
+            raise PluginError(f"Error de codificación en: {self.file_path}")
         except Exception as e:
-            raise PluginError(f"Error leyendo CSV: {e}")
+            raise PluginError(f"Error leyendo CSV: {str(e)}")
 
-    # ---------------------------------------------------------
-
-    def read_batches(self, batch_size: int) -> Iterator[List[Dict[str, Any]]]:
-        """
-        Devuelve batches de filas.
-        """
-
-        batch = []
-
-        for row in self.read_rows():
-
-            batch.append(row)
-
-            if len(batch) >= batch_size:
-
-                yield batch
-                batch = []
-
-        if batch:
-            yield batch
-
-
-# registrar plugin
-PluginRegistry.register("csv", CSVPlugin)
+    @staticmethod
+    def detect(file_path: str) -> bool:
+        return file_path.lower().endswith('.csv')

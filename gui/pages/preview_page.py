@@ -1,179 +1,112 @@
 from PySide6.QtWidgets import (
-    QWizardPage,
-    QVBoxLayout,
-    QLabel,
-    QTableView,
-    QMessageBox
+    QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog, QTableWidget,
+    QTableWidgetItem, QMessageBox
 )
-
-from PySide6.QtCore import Qt, QAbstractTableModel
-
+from PySide6.QtCore import Signal, Qt
+from plugins.plugin_registry import PluginRegistry
+from core.exceptions import PluginError
 import pandas as pd
 
+class PreviewPage(QWidget):
+    """
+    Página genérica de preview de datos.
+    Independiente de wizard, reutilizable y escalable.
+    """
 
-# =========================================================
-# MODELO PARA PANDAS
-# =========================================================
+    # Señal emitida cuando el preview está listo
+    preview_ready = Signal(object)  # dict: {'plugin': plugin_instance, 'df': dataframe}
 
-class PandasTableModel(QAbstractTableModel):
+    def __init__(self, parent=None, preview_rows: int = 10):
+        super().__init__(parent)
+        self.preview_rows = preview_rows
+        self.plugin = None
+        self.df = pd.DataFrame()
 
-    def __init__(self, dataframe):
+        # Layout
+        self.layout = QVBoxLayout(self)
 
-        super().__init__()
+        # Botón para seleccionar archivo
+        self.select_button = QPushButton("Seleccionar archivo")
+        self.select_button.clicked.connect(self.open_file_dialog)
+        self.layout.addWidget(self.select_button)
 
-        self.df = dataframe
+        # Label de info
+        self.info_label = QLabel("No hay archivo seleccionado")
+        self.layout.addWidget(self.info_label)
 
-    def rowCount(self, parent=None):
+        # Tabla para mostrar preview
+        self.table = QTableWidget()
+        self.layout.addWidget(self.table)
 
-        return len(self.df)
-
-    def columnCount(self, parent=None):
-
-        return len(self.df.columns)
-
-    def data(self, index, role=Qt.DisplayRole):
-
-        if role == Qt.DisplayRole:
-
-            value = self.df.iloc[index.row(), index.column()]
-
-            return str(value)
-
-        return None
-
-    def headerData(self, section, orientation, role):
-
-        if role == Qt.DisplayRole:
-
-            if orientation == Qt.Horizontal:
-                return str(self.df.columns[section])
-
-            if orientation == Qt.Vertical:
-                return str(section)
-
-        return None
-
-
-# =========================================================
-# PREVIEW PAGE
-# =========================================================
-
-class PreviewPage(QWizardPage):
-
-    PREVIEW_ROWS = 100
-
-    def __init__(self):
-
-        super().__init__()
-
-        self.setTitle("Vista previa de datos")
-        self.setSubTitle(
-            "Revise una muestra de los datos antes de continuar."
+    # -----------------------------------------
+    # Abrir diálogo de archivo
+    # -----------------------------------------
+    def open_file_dialog(self):
+        file_path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Seleccionar archivo",
+            "",
+            "Todos los archivos (*.*)"
         )
+        if file_path:
+            self.load_file(file_path)
 
-        self.df = None
-
-        self._build_ui()
-
-    # =====================================================
-    # UI
-    # =====================================================
-
-    def _build_ui(self):
-
-        layout = QVBoxLayout()
-
-        self.info_label = QLabel("Cargando datos...")
-
-        self.table = QTableView()
-
-        layout.addWidget(self.info_label)
-        layout.addWidget(self.table)
-
-        self.setLayout(layout)
-
-    # =====================================================
-    # CUANDO SE ENTRA A LA PÁGINA
-    # =====================================================
-
-    def initializePage(self):
-
-        wizard = self.wizard()
-
-        file_path = wizard.selected_file
-        detection = wizard.detection_result
-
+    # -----------------------------------------
+    # Cargar archivo usando plugin
+    # -----------------------------------------
+    def load_file(self, file_path: str):
+        self.info_label.setText(f"Cargando: {file_path}")
         try:
+            # Detectar plugin automáticamente
+            plugin_cls = PluginRegistry.detect_plugin(file_path)
+            if not plugin_cls:
+                raise PluginError("No se pudo detectar un plugin para este archivo")
 
-            self.df = self.load_preview(file_path, detection)
+            # Crear instancia del plugin
+            self.plugin = plugin_cls(file_path)
 
-            model = PandasTableModel(self.df)
+            # Leer preview de primeras N filas
+            rows = []
+            for i, row in enumerate(self.plugin.read_rows()):
+                rows.append(row)
+                if i >= self.preview_rows - 1:
+                    break
 
-            self.table.setModel(model)
+            if not rows:
+                raise PluginError("Archivo vacío o sin filas legibles")
 
-            self.update_info()
+            # Convertir a dataframe
+            self.df = pd.DataFrame(rows)
 
+            # Mostrar en tabla
+            self.show_preview_table()
+
+            self.info_label.setText(f"{len(self.df)} filas cargadas")
+
+            # Emitir señal
+            self.preview_ready.emit({'plugin': self.plugin, 'df': self.df})
+
+        except PluginError as e:
+            QMessageBox.critical(self, "Error plugin", str(e))
+            self.info_label.setText("Error cargando archivo")
         except Exception as e:
+            QMessageBox.critical(self, "Error", str(e))
+            self.info_label.setText("Error inesperado")
 
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"No se pudo cargar la vista previa:\n{str(e)}"
-            )
+    # -----------------------------------------
+    # Mostrar tabla con preview
+    # -----------------------------------------
+    def show_preview_table(self):
+        if self.df.empty:
+            return
 
-    # =====================================================
-    # CARGAR PREVIEW
-    # =====================================================
+        headers = list(self.df.columns)
+        self.table.setColumnCount(len(headers))
+        self.table.setRowCount(len(self.df))
+        self.table.setHorizontalHeaderLabels(headers)
 
-    def load_preview(self, file_path, detection):
-
-        fmt = detection.format
-
-        if fmt == "csv":
-
-            return pd.read_csv(
-                file_path,
-                encoding=detection.encoding,
-                delimiter=detection.delimiter,
-                nrows=self.PREVIEW_ROWS
-            )
-
-        if fmt == "excel":
-
-            return pd.read_excel(
-                file_path,
-                nrows=self.PREVIEW_ROWS
-            )
-
-        if fmt == "json":
-
-            df = pd.read_json(file_path)
-
-            return df.head(self.PREVIEW_ROWS)
-
-        raise Exception(f"Formato no soportado aún: {fmt}")
-
-    # =====================================================
-    # INFO DATASET
-    # =====================================================
-
-    def update_info(self):
-
-        rows = len(self.df)
-        cols = len(self.df.columns)
-
-        self.info_label.setText(
-            f"Filas mostradas: {rows} | Columnas: {cols}"
-        )
-
-    # =====================================================
-    # VALIDACIÓN
-    # =====================================================
-
-    def validatePage(self):
-
-        wizard = self.wizard()
-
-        wizard.preview_df = self.df
-
-        return True
+        for i, row in self.df.iterrows():
+            for j, key in enumerate(headers):
+                item = QTableWidgetItem(str(row[key]))
+                item.setFlags(Qt.ItemIsEnabled)  # Solo lectura
+                self.table.setItem(i, j, item)
