@@ -1,265 +1,160 @@
-"""
-MappingPage
-
-Allows mapping between source columns and destination columns.
-This is a key ETL step before importing data.
-"""
-
 from PySide6.QtWidgets import (
-    QWidget,
+    QWizardPage,
     QVBoxLayout,
     QLabel,
-    QTableWidget,
-    QTableWidgetItem,
+    QTableView,
+    QMessageBox,
     QComboBox,
-    QCheckBox,
-    QPushButton,
-    QHBoxLayout,
+    QStyledItemDelegate
 )
+from PySide6.QtCore import Qt, QAbstractTableModel
 
-from PySide6.QtCore import Qt
+# =========================================================
+# DELEGATE PARA COMBOBOX EN TABLEVIEW
+# =========================================================
+class ComboBoxDelegate(QStyledItemDelegate):
+    """Permite seleccionar valores de un combo en QTableView."""
 
-
-TRANSFORM_OPTIONS = [
-    "NONE",
-    "TRIM",
-    "LOWER",
-    "UPPER",
-    "INT",
-    "FLOAT",
-    "BOOLEAN",
-    "DATE",
-    "DATETIME",
-    "JSON_PARSE",
-]
-
-
-class MappingPage(QWidget):
-    """
-    UI page used to map source columns to destination columns.
-    """
-
-    def __init__(self, parent=None):
+    def __init__(self, items, parent=None):
         super().__init__(parent)
+        self.items = items
 
-        self.source_columns = []
-        self.target_schema = []
+    def createEditor(self, parent, option, index):
+        combo = QComboBox(parent)
+        combo.addItems(self.items)
+        return combo
 
-        self.init_ui()
+    def setEditorData(self, editor, index):
+        value = index.model().data(index, Qt.EditRole)
+        i = editor.findText(value)
+        if i >= 0:
+            editor.setCurrentIndex(i)
 
-    # --------------------------------------------------
+    def setModelData(self, editor, model, index):
+        model.setData(index, editor.currentText(), Qt.EditRole)
 
-    def init_ui(self):
+# =========================================================
+# MODELO PARA EL MAPPING
+# =========================================================
+class MappingTableModel(QAbstractTableModel):
+    """Modelo para mapear columnas de origen a destino."""
 
+    def __init__(self, source_columns, db_columns):
+        super().__init__()
+        self.source_columns = source_columns
+        self.db_columns = [None] * len(source_columns)
+        self.db_options = db_columns
+
+    def rowCount(self, parent=None):
+        return len(self.source_columns)
+
+    def columnCount(self, parent=None):
+        return 2  # Origen / Destino
+
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid():
+            return None
+        row, col = index.row(), index.column()
+        if role in (Qt.DisplayRole, Qt.EditRole):
+            if col == 0:
+                return self.source_columns[row]
+            if col == 1:
+                return self.db_columns[row] if self.db_columns[row] else ""
+        return None
+
+    def setData(self, index, value, role=Qt.EditRole):
+        if not index.isValid():
+            return False
+        row, col = index.row(), index.column()
+        if role == Qt.EditRole and col == 1:
+            self.db_columns[row] = value
+            self.dataChanged.emit(index, index)
+            return True
+        return False
+
+    def flags(self, index):
+        if not index.isValid():
+            return Qt.NoItemFlags
+        if index.column() == 1:
+            return Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsEditable
+        return Qt.ItemIsSelectable | Qt.ItemIsEnabled
+
+    def headerData(self, section, orientation, role):
+        if role == Qt.DisplayRole:
+            if orientation == Qt.Horizontal:
+                return ["Source Column", "Database Column"][section]
+            if orientation == Qt.Vertical:
+                return str(section)
+        return None
+
+# =========================================================
+# MAPPING PAGE
+# =========================================================
+class MappingPage(QWizardPage):
+    """Página para mapear columnas del dataset a la base de datos."""
+
+    def __init__(self):
+        super().__init__()
+        self.setTitle("Mapeo de columnas")
+        self.setSubTitle("Mapee las columnas del dataset a las columnas de la base de datos.")
+        self.model = None
+        self.table = None
+        self._build_ui()
+
+    # =====================================================
+    # UI
+    # =====================================================
+    def _build_ui(self):
         layout = QVBoxLayout()
-
-        title = QLabel("Column Mapping")
-        title.setStyleSheet("font-size:16px; font-weight:bold")
-
-        layout.addWidget(title)
-
-        self.table = QTableWidget()
-
-        self.table.setColumnCount(6)
-
-        self.table.setHorizontalHeaderLabels(
-            [
-                "Enabled",
-                "Source Column",
-                "Target Column",
-                "Target Type",
-                "Transform",
-                "Notes",
-            ]
-        )
-
-        self.table.horizontalHeader().setStretchLastSection(True)
-
+        self.info_label = QLabel("Cargando mapeo...")
+        self.table = QTableView()
+        layout.addWidget(self.info_label)
         layout.addWidget(self.table)
-
-        # Buttons
-        button_layout = QHBoxLayout()
-
-        self.auto_map_btn = QPushButton("Auto Map")
-        self.clear_btn = QPushButton("Clear Mapping")
-        self.validate_btn = QPushButton("Validate Mapping")
-
-        button_layout.addWidget(self.auto_map_btn)
-        button_layout.addWidget(self.clear_btn)
-        button_layout.addWidget(self.validate_btn)
-
-        layout.addLayout(button_layout)
-
         self.setLayout(layout)
 
-    # --------------------------------------------------
+    # =====================================================
+    # CUANDO SE ENTRA A LA PÁGINA
+    # =====================================================
+    def initializePage(self):
+        wizard = self.wizard()
+        source_columns = getattr(wizard, "schema_columns", None)
+        db_columns = getattr(wizard, "db_columns", None)
 
-    def load_mapping(self, source_columns, schema):
-
-        """
-        Populate mapping table using source columns and detected schema.
-        """
-
-        self.source_columns = source_columns
-        self.target_schema = schema.get("columns", [])
-
-        self.table.setRowCount(len(source_columns))
-
-        target_names = [c["target_name"] if "target_name" in c else c["name"] for c in self.target_schema]
-        target_types = {c.get("target_name", c["name"]): c["type"] for c in self.target_schema}
-
-        for row, source in enumerate(source_columns):
-
-            # Enabled
-            enabled = QCheckBox()
-            enabled.setChecked(True)
-
-            self.table.setCellWidget(row, 0, enabled)
-
-            # Source column
-            src_item = QTableWidgetItem(source)
-            src_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
-
-            self.table.setItem(row, 1, src_item)
-
-            # Target column selector
-            target_combo = QComboBox()
-            target_combo.addItems([""] + target_names)
-
-            self.table.setCellWidget(row, 2, target_combo)
-
-            # Target type
-            type_combo = QComboBox()
-
-            type_combo.addItems(
-                [
-                    "INTEGER",
-                    "FLOAT",
-                    "BOOLEAN",
-                    "TEXT",
-                    "DATE",
-                    "DATETIME",
-                    "JSON",
-                    "BLOB",
-                ]
+        if not source_columns or not db_columns:
+            QMessageBox.critical(
+                self,
+                "Error",
+                "No se definieron columnas de origen o destino para mapear"
             )
+            return
 
-            self.table.setCellWidget(row, 3, type_combo)
+        self.model = MappingTableModel(source_columns, db_columns)
+        self.table.setModel(self.model)
 
-            # Transform
-            transform_combo = QComboBox()
-            transform_combo.addItems(TRANSFORM_OPTIONS)
+        # Delegate para la columna de DB con combo box
+        delegate = ComboBoxDelegate(db_columns, self.table)
+        self.table.setItemDelegateForColumn(1, delegate)
 
-            self.table.setCellWidget(row, 4, transform_combo)
+        self.update_info()
 
-            # Notes
-            notes_item = QTableWidgetItem("")
-            notes_item.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+    # =====================================================
+    # INFO DEL MAPPING
+    # =====================================================
+    def update_info(self):
+        rows = len(self.model.source_columns) if self.model else 0
+        self.info_label.setText(f"Columnas a mapear: {rows}")
 
-            self.table.setItem(row, 5, notes_item)
-
-    # --------------------------------------------------
-
-    def auto_map(self):
-        """
-        Attempt automatic mapping by matching column names.
-        """
-
-        for row in range(self.table.rowCount()):
-
-            source = self.table.item(row, 1).text().lower()
-
-            combo = self.table.cellWidget(row, 2)
-
-            for i in range(combo.count()):
-
-                target = combo.itemText(i).lower()
-
-                if source == target:
-                    combo.setCurrentIndex(i)
-                    break
-
-    # --------------------------------------------------
-
-    def clear_mapping(self):
-
-        """
-        Remove all mappings.
-        """
-
-        for row in range(self.table.rowCount()):
-
-            combo = self.table.cellWidget(row, 2)
-            combo.setCurrentIndex(0)
-
-    # --------------------------------------------------
-
-    def validate_mapping(self):
-
-        """
-        Validate mapping and add notes.
-        """
-
-        used_targets = set()
-
-        for row in range(self.table.rowCount()):
-
-            notes = []
-
-            enabled = self.table.cellWidget(row, 0).isChecked()
-
-            if not enabled:
-                continue
-
-            source = self.table.item(row, 1).text()
-
-            target_combo = self.table.cellWidget(row, 2)
-            target = target_combo.currentText()
-
-            if not target:
-                notes.append("No target column")
-
-            if target in used_targets:
-                notes.append("Duplicate target")
-
-            used_targets.add(target)
-
-            notes_item = self.table.item(row, 5)
-
-            notes_item.setText(", ".join(notes))
-
-    # --------------------------------------------------
-
-    def get_mapping(self):
-
-        """
-        Extract mapping configuration from UI.
-        """
-
-        mapping = []
-
-        for row in range(self.table.rowCount()):
-
-            enabled = self.table.cellWidget(row, 0).isChecked()
-
-            if not enabled:
-                continue
-
-            source = self.table.item(row, 1).text()
-
-            target = self.table.cellWidget(row, 2).currentText()
-
-            dtype = self.table.cellWidget(row, 3).currentText()
-
-            transform = self.table.cellWidget(row, 4).currentText()
-
-            mapping.append(
-                {
-                    "source": source,
-                    "target": target,
-                    "type": dtype,
-                    "transform": transform,
-                }
-            )
-
-        return mapping
+    # =====================================================
+    # VALIDACIÓN
+    # =====================================================
+    def validatePage(self):
+        """Guardar mapeo final en wizard para usarlo en ImportEngine."""
+        wizard = self.wizard()
+        if not self.model:
+            return False
+        # Diccionario source -> target
+        wizard.mapping = [
+            {"source": src, "target": tgt, "transform": None}
+            for src, tgt in zip(self.model.source_columns, self.model.db_columns)
+        ]
+        return True

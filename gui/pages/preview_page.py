@@ -1,112 +1,138 @@
 from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog, QTableWidget,
-    QTableWidgetItem, QMessageBox
+    QWizardPage,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QTableView,
+    QPushButton,
+    QMessageBox,
+    QComboBox
 )
-from PySide6.QtCore import Signal, Qt
-from plugins.plugin_registry import PluginRegistry
-from core.exceptions import PluginError
+from PySide6.QtCore import Qt, QAbstractTableModel
 import pandas as pd
 
-class PreviewPage(QWidget):
-    """
-    Página genérica de preview de datos.
-    Independiente de wizard, reutilizable y escalable.
-    """
+# =========================================================
+# MODELO PARA EDITAR SCHEMA
+# =========================================================
+class SchemaTableModel(QAbstractTableModel):
+    """Modelo QTableView para edición de esquema de columnas."""
 
-    # Señal emitida cuando el preview está listo
-    preview_ready = Signal(object)  # dict: {'plugin': plugin_instance, 'df': dataframe}
+    SUPPORTED_TYPES = ["string", "int", "float", "bool"]
 
-    def __init__(self, parent=None, preview_rows: int = 10):
-        super().__init__(parent)
-        self.preview_rows = preview_rows
-        self.plugin = None
-        self.df = pd.DataFrame()
+    def __init__(self, dataframe: pd.DataFrame):
+        super().__init__()
+        self.columns = list(dataframe.columns)
+        # Default: inferir tipos básicos
+        self.types = [self._infer_type(dataframe[col]) for col in self.columns]
 
-        # Layout
-        self.layout = QVBoxLayout(self)
+    def rowCount(self, parent=None):
+        return len(self.columns)
 
-        # Botón para seleccionar archivo
-        self.select_button = QPushButton("Seleccionar archivo")
-        self.select_button.clicked.connect(self.open_file_dialog)
-        self.layout.addWidget(self.select_button)
+    def columnCount(self, parent=None):
+        return 2  # Nombre y Tipo
 
-        # Label de info
-        self.info_label = QLabel("No hay archivo seleccionado")
-        self.layout.addWidget(self.info_label)
+    def data(self, index, role=Qt.DisplayRole):
+        if not index.isValid():
+            return None
+        row, col = index.row(), index.column()
+        if role == Qt.DisplayRole or role == Qt.EditRole:
+            if col == 0:
+                return self.columns[row]
+            if col == 1:
+                return self.types[row]
+        return None
 
-        # Tabla para mostrar preview
-        self.table = QTableWidget()
-        self.layout.addWidget(self.table)
+    def setData(self, index, value, role=Qt.EditRole):
+        if not index.isValid():
+            return False
+        row, col = index.row(), index.column()
+        if role == Qt.EditRole:
+            if col == 0:
+                self.columns[row] = str(value)
+            elif col == 1 and value in self.SUPPORTED_TYPES:
+                self.types[row] = value
+            else:
+                return False
+            self.dataChanged.emit(index, index)
+            return True
+        return False
 
-    # -----------------------------------------
-    # Abrir diálogo de archivo
-    # -----------------------------------------
-    def open_file_dialog(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Seleccionar archivo",
-            "",
-            "Todos los archivos (*.*)"
-        )
-        if file_path:
-            self.load_file(file_path)
+    def flags(self, index):
+        return Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsEditable
 
-    # -----------------------------------------
-    # Cargar archivo usando plugin
-    # -----------------------------------------
-    def load_file(self, file_path: str):
-        self.info_label.setText(f"Cargando: {file_path}")
-        try:
-            # Detectar plugin automáticamente
-            plugin_cls = PluginRegistry.detect_plugin(file_path)
-            if not plugin_cls:
-                raise PluginError("No se pudo detectar un plugin para este archivo")
+    def headerData(self, section, orientation, role):
+        if role == Qt.DisplayRole:
+            if orientation == Qt.Horizontal:
+                return ["Column Name", "Type"][section]
+            if orientation == Qt.Vertical:
+                return str(section)
+        return None
 
-            # Crear instancia del plugin
-            self.plugin = plugin_cls(file_path)
+    def _infer_type(self, series: pd.Series):
+        if pd.api.types.is_integer_dtype(series):
+            return "int"
+        elif pd.api.types.is_float_dtype(series):
+            return "float"
+        elif pd.api.types.is_bool_dtype(series):
+            return "bool"
+        else:
+            return "string"
 
-            # Leer preview de primeras N filas
-            rows = []
-            for i, row in enumerate(self.plugin.read_rows()):
-                rows.append(row)
-                if i >= self.preview_rows - 1:
-                    break
+# =========================================================
+# SCHEMA PAGE
+# =========================================================
+class SchemaPage(QWizardPage):
+    """Página para revisión y edición del esquema de columnas."""
 
-            if not rows:
-                raise PluginError("Archivo vacío o sin filas legibles")
+    def __init__(self):
+        super().__init__()
+        self.setTitle("Definir esquema")
+        self.setSubTitle("Revise y modifique los nombres y tipos de las columnas.")
+        self.df = None
+        self.model = None
+        self._build_ui()
 
-            # Convertir a dataframe
-            self.df = pd.DataFrame(rows)
+    # =====================================================
+    # UI
+    # =====================================================
+    def _build_ui(self):
+        layout = QVBoxLayout()
+        self.info_label = QLabel("Cargando esquema...")
+        self.table = QTableView()
+        layout.addWidget(self.info_label)
+        layout.addWidget(self.table)
+        self.setLayout(layout)
 
-            # Mostrar en tabla
-            self.show_preview_table()
-
-            self.info_label.setText(f"{len(self.df)} filas cargadas")
-
-            # Emitir señal
-            self.preview_ready.emit({'plugin': self.plugin, 'df': self.df})
-
-        except PluginError as e:
-            QMessageBox.critical(self, "Error plugin", str(e))
-            self.info_label.setText("Error cargando archivo")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", str(e))
-            self.info_label.setText("Error inesperado")
-
-    # -----------------------------------------
-    # Mostrar tabla con preview
-    # -----------------------------------------
-    def show_preview_table(self):
-        if self.df.empty:
+    # =====================================================
+    # CUANDO SE ENTRA A LA PÁGINA
+    # =====================================================
+    def initializePage(self):
+        wizard = self.wizard()
+        self.df = getattr(wizard, "preview_df", None)
+        if self.df is None or self.df.empty:
+            QMessageBox.critical(self, "Error", "No hay datos de preview para definir esquema")
+            self.df = pd.DataFrame()
             return
 
-        headers = list(self.df.columns)
-        self.table.setColumnCount(len(headers))
-        self.table.setRowCount(len(self.df))
-        self.table.setHorizontalHeaderLabels(headers)
+        self.model = SchemaTableModel(self.df)
+        self.table.setModel(self.model)
+        self.update_info()
 
-        for i, row in self.df.iterrows():
-            for j, key in enumerate(headers):
-                item = QTableWidgetItem(str(row[key]))
-                item.setFlags(Qt.ItemIsEnabled)  # Solo lectura
-                self.table.setItem(i, j, item)
+    # =====================================================
+    # INFO DEL SCHEMA
+    # =====================================================
+    def update_info(self):
+        rows = len(self.model.columns) if self.model else 0
+        self.info_label.setText(f"Columnas: {rows}")
+
+    # =====================================================
+    # VALIDACIÓN
+    # =====================================================
+    def validatePage(self):
+        """Guarda el esquema editado en el wizard para usarlo en mapping y engine."""
+        wizard = self.wizard()
+        if not self.model:
+            return False
+        wizard.schema_columns = self.model.columns
+        wizard.schema_types = self.model.types
+        return True

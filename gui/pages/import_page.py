@@ -1,201 +1,99 @@
-"""
-ImportPage
-
-Final step of the wizard.
-Responsible for running the data import process
-and displaying progress, logs and statistics.
-"""
-
 from PySide6.QtWidgets import (
-    QWidget,
+    QWizardPage,
     QVBoxLayout,
     QLabel,
-    QPushButton,
     QProgressBar,
     QTextEdit,
-    QHBoxLayout,
+    QMessageBox
 )
+from PySide6.QtCore import Qt, QTimer, Slot
+from core.engine import ImportEngine
 
-from PySide6.QtCore import QThread, Signal
+# =========================================================
+# IMPORT PAGE
+# =========================================================
+class ImportPage(QWizardPage):
+    """Página para ejecutar la importación de datos."""
 
-class ImportWorker(QThread):
-    """
-    Worker thread used to run the import process
-    without freezing the GUI.
-    """
-
-    progress = Signal(int)
-    log = Signal(str)
-    finished = Signal()
-    stats = Signal(int, int)
-
-    def __init__(self, state):
+    def __init__(self):
         super().__init__()
+        self.setTitle("Importación de datos")
+        self.setSubTitle("Se procesarán los datos hacia la base de datos seleccionada.")
 
-        self.state = state
-        self.running = True
+        self.progress_bar = None
+        self.log_view = None
+        self.engine = None
+        self._build_ui()
 
-    def stop(self):
-        self.running = False
-
-    def run(self):
-
-        """
-        Placeholder import logic.
-        Later this will call core.engine
-        """
-
-        import time
-
-        from core.engine import ImportEngine
-
-        rows = 100
-        processed = 0
-        errors = 0
-#----------------------------------------------------------------------
-        engine = ImportEngine(
-            self.state,
-            progress_callback=self.progress.emit,
-            log_callback=self.log.emit,
-        )
-
-        rows, errors = engine.run()
-
-        self.stats.emit(rows, errors)
-#----------------------------------------------------------------------
-        self.log.emit("Starting import...")
-
-        for i in range(rows):
-
-            if not self.running:
-                self.log.emit("Import cancelled")
-                break
-
-            time.sleep(0.03)
-
-            processed += 1
-
-            percent = int((processed / rows) * 100)
-
-            self.progress.emit(percent)
-
-            if i % 10 == 0:
-                self.log.emit(f"Processed {processed} rows")
-
-        self.stats.emit(processed, errors)
-
-        self.log.emit("Import finished")
-
-        self.finished.emit()
-
-
-class ImportPage(QWidget):
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-
-        self.state = None
-        self.worker = None
-
-        self.init_ui()
-
-    # --------------------------------------------------
-
-    def init_ui(self):
-
+    # =====================================================
+    # UI
+    # =====================================================
+    def _build_ui(self):
         layout = QVBoxLayout()
 
-        title = QLabel("Import Data")
-        title.setStyleSheet("font-size:16px; font-weight:bold")
-
-        layout.addWidget(title)
-
-        # Progress bar
+        self.info_label = QLabel("Preparado para iniciar la importación...")
         self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
         self.progress_bar.setValue(0)
 
+        self.log_view = QTextEdit()
+        self.log_view.setReadOnly(True)
+
+        layout.addWidget(self.info_label)
         layout.addWidget(self.progress_bar)
-
-        # Stats
-        self.stats_label = QLabel("Rows processed: 0 | Errors: 0")
-
-        layout.addWidget(self.stats_label)
-
-        # Log window
-        self.log_window = QTextEdit()
-        self.log_window.setReadOnly(True)
-
-        layout.addWidget(self.log_window)
-
-        # Buttons
-        button_layout = QHBoxLayout()
-
-        self.start_button = QPushButton("Start Import")
-        self.cancel_button = QPushButton("Cancel")
-
-        button_layout.addWidget(self.start_button)
-        button_layout.addWidget(self.cancel_button)
-
-        layout.addLayout(button_layout)
+        layout.addWidget(self.log_view)
 
         self.setLayout(layout)
 
-        # Signals
-        self.start_button.clicked.connect(self.start_import)
-        self.cancel_button.clicked.connect(self.cancel_import)
-
-    # --------------------------------------------------
-
-    def set_state(self, state):
-        """
-        Receive wizard state.
-        """
-
-        self.state = state
-
-    # --------------------------------------------------
-
-    def start_import(self):
-
-        if not self.state:
-            self.log("No import configuration")
-            return
-
-        self.progress_bar.setValue(0)
-        self.log_window.clear()
-
-        self.worker = ImportWorker(self.state)
-
-        self.worker.progress.connect(self.progress_bar.setValue)
-        self.worker.log.connect(self.log)
-        self.worker.finished.connect(self.import_finished)
-        self.worker.stats.connect(self.update_stats)
-
-        self.worker.start()
-
-    # --------------------------------------------------
-
-    def cancel_import(self):
-
-        if self.worker:
-            self.worker.stop()
-
-    # --------------------------------------------------
-
-    def import_finished(self):
-
-        self.log("Import process completed")
-
-    # --------------------------------------------------
-
-    def update_stats(self, rows, errors):
-
-        self.stats_label.setText(
-            f"Rows processed: {rows} | Errors: {errors}"
+    # =====================================================
+    # CUANDO SE ENTRA A LA PÁGINA
+    # =====================================================
+    def initializePage(self):
+        wizard = self.wizard()
+        self.engine = ImportEngine(
+            state={
+                "file_path": getattr(wizard, "selected_file", ""),
+                "format": getattr(wizard, "detection_result", {}).get("format", ""),
+                "schema": getattr(wizard, "schema_columns", []),
+                "mapping": getattr(wizard, "mapping", [])
+            },
+            progress_callback=self.update_progress,
+            log_callback=self.append_log
         )
 
-    # --------------------------------------------------
+        # Ejecutar import con un delay mínimo para que QWizard cargue la UI
+        QTimer.singleShot(100, self.run_import)
 
-    def log(self, message):
+    # =====================================================
+    # ACTUALIZAR PROGRESO
+    # =====================================================
+    @Slot(int)
+    def update_progress(self, percent: int):
+        self.progress_bar.setValue(percent)
 
-        self.log_window.append(message)
+    # =====================================================
+    # LOGS
+    # =====================================================
+    @Slot(str)
+    def append_log(self, message: str):
+        self.log_view.append(message)
+
+    # =====================================================
+    # EJECUTAR IMPORT
+    # =====================================================
+    def run_import(self):
+        try:
+            rows, errors = self.engine.run()
+            self.append_log(f"Importación finalizada: {rows} filas procesadas, {errors} errores.")
+            QMessageBox.information(
+                self,
+                "Importación completada",
+                f"Se procesaron {rows} filas.\nErrores: {errors}"
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Error en importación",
+                f"Ocurrió un error durante la importación:\n{str(e)}"
+            )
+            self.append_log(f"Error crítico: {str(e)}")
