@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Dict, Optional
 
+from core.models.file_type import FileType
+
 
 class DataSource:
     """
@@ -16,7 +18,7 @@ class DataSource:
     def __init__(
         self,
         path: str,
-        file_type: str,
+        file_type: FileType,
         metadata: Optional[Dict] = None,
         config: Optional[Dict] = None
     ):

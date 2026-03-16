@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from typing import Generator
 
 from core.models.pipeline import Pipeline
 
@@ -9,7 +10,7 @@ class PipelineExecutor(ABC):
     """
 
     @abstractmethod
-    def run_pipeline(self, pipeline: Pipeline):
+    def run_pipeline(self, pipeline: Pipeline) -> Generator[str, None, None]:
         """
         Execute the given pipeline.
         """
