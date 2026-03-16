@@ -1,23 +1,56 @@
-from infrastructure.logger import get_logger
 from infrastructure.config_manager import ConfigManager
+from infrastructure.logger import setup_logging, get_logger
+
 from core.services.meltano_service import MeltanoService
 from core.services.pipeline_service import PipelineService
-from gui.viewmodels.main_vm import MainViewModel
-from gui.views.main_window import MainWindow
 
-class Application:
+
+class ApplicationContainer:
+    """
+    Dependency container for the application.
+    """
 
     def __init__(self):
-        self.logger = get_logger()
+
+        # -----------------------------
+        # Configuration
+        # -----------------------------
+
         self.config = ConfigManager()
+
+        # -----------------------------
+        # Logging
+        # -----------------------------
+
+        setup_logging(self.config)
+        self.logger = get_logger("app")
+
+        self.logger.info("Application bootstrap starting")
+
+        # -----------------------------
+        # Services
+        # -----------------------------
+
         self.meltano_service = MeltanoService(self.config)
-        self.pipeline_service = PipelineService(self.meltano_service)
 
-    def run(self):
-        vm = MainViewModel(self.pipeline_service)
-        window = MainWindow(vm)
-        window.start()
+        self.pipeline_service = PipelineService(
+            self.meltano_service
+        )
 
+        self.logger.info("Services initialized")
 
-def create_application():
-    return Application()
+    # ----------------------------------
+    # Access helpers
+    # ----------------------------------
+
+    def get_config(self):
+
+        return self.config
+
+    def get_pipeline_service(self):
+
+        return self.pipeline_service
+
+    def get_meltano_service(self):
+
+        return self.meltano_service
