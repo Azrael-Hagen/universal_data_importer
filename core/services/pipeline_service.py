@@ -4,6 +4,7 @@ from typing import Generator
 from core.detectors.file_detector import detect_file_type
 from core.models.datasource import DataSource
 from core.models.pipeline import Pipeline
+from core.executors.pipeline_executor import PipelineExecutor
 
 
 class PipelineService:
@@ -11,7 +12,6 @@ class PipelineService:
     High-level service responsible for building and executing pipelines.
     """
 
-    # Mapping between file types and Meltano taps
     PIPELINE_MAP = {
         "csv": "tap-csv",
         "excel": "tap-excel",
@@ -20,17 +20,15 @@ class PipelineService:
 
     DEFAULT_TARGET = "target-jsonl"
 
-    def __init__(self, meltano_service):
-        self.meltano = meltano_service
+    def __init__(self, executor: PipelineExecutor):
+
+        self.executor = executor
 
     # -----------------------------------------
     # Public API
     # -----------------------------------------
 
     def import_file(self, path: str) -> Generator[str, None, None]:
-        """
-        Import a file into the pipeline system.
-        """
 
         datasource = self._build_datasource(path)
 
@@ -43,9 +41,6 @@ class PipelineService:
     # -----------------------------------------
 
     def _build_datasource(self, path: str) -> DataSource:
-        """
-        Create DataSource model from file.
-        """
 
         file_type = detect_file_type(path)
 
@@ -55,9 +50,6 @@ class PipelineService:
         return DataSource(path, file_type)
 
     def _resolve_pipeline(self, datasource: DataSource) -> Pipeline:
-        """
-        Resolve pipeline configuration for datasource.
-        """
 
         file_type = datasource.file_type
 
@@ -73,22 +65,13 @@ class PipelineService:
     # -----------------------------------------
 
     def _execute_pipeline(self, pipeline: Pipeline) -> Generator[str, None, None]:
-        """
-        Execute pipeline using Meltano.
-        """
 
-        yield from self.meltano.run_pipeline(
-            pipeline.source,
-            pipeline.target
-        )
+        yield from self.executor.run_pipeline(pipeline)
 
     # -----------------------------------------
     # Extensibility
     # -----------------------------------------
 
     def register_pipeline(self, file_type: str, tap: str):
-        """
-        Register a new pipeline mapping.
-        """
 
         self.PIPELINE_MAP[file_type] = tap
