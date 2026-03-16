@@ -9,9 +9,6 @@ plugins:
   - name: tap-csv
     variant: meltanolabs
     pip_url: git+https://github.com/MeltanoLabs/tap-csv.git
-  - name: tap-spreadsheets-anywhere
-    variant: ets
-    pip_url: git+https://github.com/ets/tap-spreadsheets-anywhere.git
   loaders:
   - name: target-jsonl
     variant: andyh1203

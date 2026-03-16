@@ -1,4 +1,38 @@
-/venv
-/.meltano
+# Virtual environments
+venv/
+.venv/
+.venv*
+.venv-meltano/
+
+# Meltano runtime
+.meltano/
+
+# Environment variables
 .env
-/.venv-meltano
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Logs
+*.log
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data outputs
+*.jsonl
+*.csv
+*.sqlite
