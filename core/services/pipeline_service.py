@@ -5,14 +5,19 @@ from core.detectors.file_detector import detect_file_type
 from core.models.datasource import DataSource
 from core.models.pipeline import Pipeline
 from core.executors.pipeline_executor import PipelineExecutor
+from infrastructure.logger import get_logger
 
 
 class PipelineService:
+
     """
     High-level service responsible for building and executing pipelines.
     """
 
-    PIPELINE_MAP = {
+
+    logger = get_logger(__name__)
+    
+    PIPELINE_MAP: dict[str, str] = {
         "csv": "tap-csv",
         "excel": "tap-excel",
         "json": "tap-json",
@@ -41,6 +46,17 @@ class PipelineService:
     # -----------------------------------------
 
     def _build_datasource(self, path: str) -> DataSource:
+        """
+        Create DataSource model from file.
+        """
+
+        file_path = Path(path)
+
+        if not file_path.exists():
+            raise FileNotFoundError(f"File not found: {path}")
+
+        if not file_path.is_file():
+            raise ValueError(f"Not a valid file: {path}")
 
         file_type = detect_file_type(path)
 
@@ -64,9 +80,15 @@ class PipelineService:
     # Execution
     # -----------------------------------------
 
-    def _execute_pipeline(self, pipeline: Pipeline) -> Generator[str, None, None]:
+    def _execute_pipeline(self, pipeline: Pipeline):
 
-        yield from self.executor.run_pipeline(pipeline)
+        try:
+
+            yield from self.executor.run_pipeline(pipeline)
+
+        except Exception as e:
+
+            yield f"Pipeline execution failed: {str(e)}"
 
     # -----------------------------------------
     # Extensibility
