@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import Generator
+import time
 
+from core.models.pipeline_result import PipelineResult
 from core.detectors.file_detector import detect_file_type
 from core.models.datasource import DataSource
 from core.models.pipeline import Pipeline
@@ -28,6 +30,7 @@ class PipelineService:
     def __init__(self, executor: PipelineExecutor):
 
         self.executor = executor
+        self.last_result: PipelineResult | None = None
 
     # -----------------------------------------
     # Public API
@@ -82,14 +85,31 @@ class PipelineService:
 
     def _execute_pipeline(self, pipeline: Pipeline):
 
+        start = time.time()
+
         try:
 
-            yield from self.executor.run_pipeline(pipeline)
+            for line in self.executor.run_pipeline(pipeline):
+                yield line
+
+            duration = time.time() - start
+
+            self.last_result = PipelineResult(
+                success=True,
+                execution_time=duration
+            )
 
         except Exception as e:
 
-            yield f"Pipeline execution failed: {str(e)}"
+            duration = time.time() - start
 
+            self.last_result = PipelineResult(
+                success=False,
+                error=str(e),
+                execution_time=duration
+            )
+
+            yield f"Pipeline execution failed: {str(e)}"
     # -----------------------------------------
     # Extensibility
     # -----------------------------------------
@@ -97,3 +117,14 @@ class PipelineService:
     def register_pipeline(self, file_type: str, tap: str):
 
         self.PIPELINE_MAP[file_type] = tap
+        self.logger.info(f"Registered pipeline for {file_type} using {tap}")
+    
+    # -----------------------------------------
+    # Accessors
+    # -----------------------------------------
+
+    def get_last_result(self) -> PipelineResult | None:
+        """
+        Return the result of the last executed pipeline.
+        """
+        return self.last_result
