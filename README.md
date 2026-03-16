@@ -1,294 +1,240 @@
 # Universal Data Importer
 
-**Universal Data Importer** es una herramienta modular para importar datos desde múltiples fuentes hacia distintos destinos de almacenamiento.
+Universal Data Importer is a modular data ingestion tool designed to import structured data from multiple file formats and process them through configurable pipelines.
 
-El proyecto está diseñado con una arquitectura extensible basada en **plugins**, permitiendo añadir fácilmente nuevos formatos de entrada y nuevos destinos de datos.
+The project focuses on clean architecture, extensibility, and maintainability, allowing the system to support multiple data sources, pipeline engines, and execution strategies.
 
-Su objetivo es convertirse en un **importador universal de datos**, capaz de manejar pipelines como:
+---
+
+# Project Goals
+
+The main goals of this project are:
+
+* Provide a universal interface for importing structured data
+* Support multiple file formats
+* Execute ingestion pipelines using external tools such as Meltano
+* Maintain a clean and extensible architecture
+* Allow future support for plugins and new pipeline engines
+* Provide a GUI for non-technical users
+
+---
+
+# Architecture
+
+The project follows a layered architecture inspired by Clean Architecture principles.
 
 ```
-CSV → SQLite
-CSV → PostgreSQL
-JSON → MySQL
-API → Data Warehouse
+app
+core
+infrastructure
+gui
+```
+
+### Layer responsibilities
+
+**App**
+
+Application entrypoints and dependency bootstrapping.
+
+```
+app/
+ ├ main.py
+ └ bootstrap.py
 ```
 
 ---
 
-# Arquitectura del sistema
+**Core**
 
-El proyecto sigue una arquitectura desacoplada basada en **fuente → engine → destino**.
-
-```
-SOURCE (Plugin)
-      │
-      ▼
-Import Engine
-      │
-      ▼
-DESTINATION (Loader)
-```
-
-Componentes principales:
-
-* **Plugins**
-  Encargados de leer datos desde diferentes fuentes.
-
-* **Engine**
-  Orquesta el proceso de importación.
-
-* **Loaders**
-  Escriben los datos en el destino final.
-
-* **Registries**
-  Sistemas que permiten registrar automáticamente plugins y loaders.
-
----
-
-# Estructura del proyecto
+Domain logic and application services.
 
 ```
-universal_data_importer/
-
 core/
-    models.py
-    exceptions.py
-    import_job.py
-    engine.py
+ ├ detectors
+ ├ executors
+ ├ models
+ └ services
+```
 
-plugins/
-    base_plugin.py
-    plugin_registry.py
-    csv_plugin.py
+Responsibilities:
 
-loaders/
-    loader_registry.py
-    sqlite_loader.py
+* Data source detection
+* Pipeline definition
+* Pipeline orchestration
+* Execution abstraction
 
-utils/
-    progress.py
+---
 
+**Infrastructure**
+
+External integrations and system utilities.
+
+```
+infrastructure/
+ ├ config_manager.py
+ ├ logger.py
+ └ meltano_runner.py
+```
+
+Responsibilities:
+
+* Logging
+* Configuration
+* External tool execution
+
+---
+
+**GUI**
+
+User interface layer.
+
+```
 gui/
-    dialogs/
+ ├ viewmodels
+ └ views
+```
 
-tools/
-    bootstrap_architecture.py
+Responsibilities:
+
+* Present data to the user
+* Trigger backend services
+* Display pipeline execution logs
+
+---
+
+# Execution Flow
+
+```
+GUI / CLI
+   │
+   ▼
+PipelineService
+   │
+   ├ Detect file type
+   ├ Build datasource
+   ├ Resolve pipeline
+   └ Execute pipeline
+        │
+        ▼
+PipelineExecutor
+        │
+        ▼
+MeltanoExecutor
+        │
+        ▼
+MeltanoRunner
 ```
 
 ---
 
-# Conceptos principales
+# Supported File Types
 
-## Plugin
-
-Un **plugin** representa una fuente de datos.
-
-Ejemplos:
+Currently supported:
 
 * CSV
 * Excel
 * JSON
-* API REST
-* Base de datos
 
-Los plugins implementan una interfaz común:
-
-```
-read_rows()
-read_batches()
-```
-
-Esto permite manejar datasets grandes sin cargar todo en memoria.
+The architecture allows new formats to be added easily.
 
 ---
 
-## Loader
+# Pipeline Execution
 
-Un **loader** representa el destino de los datos.
+Pipelines are executed using a pluggable executor system.
 
-Ejemplos:
+Current executor:
 
-* SQLite
-* PostgreSQL
-* MySQL
-* Parquet
-* Data Warehouse
+```
+MeltanoExecutor
+```
 
-Los loaders reciben filas de datos y las insertan en el destino.
+Future executors may include:
+
+* Airbyte
+* Spark
+* Custom plugins
 
 ---
 
-## Import Job
+# Streaming Execution Logs
 
-Un **ImportJob** define un proceso completo de importación:
+Pipeline execution streams logs using Python generators.
 
-```
-source_plugin
-destination_loader
-source_config
-destination_config
-batch_size
-table_name
-```
-
-El engine utiliza esta configuración para ejecutar el pipeline.
-
----
-
-# Ejemplo de uso
-
-Ejemplo simple de importación:
-
-```
-CSV → SQLite
-```
+Example:
 
 ```python
-from core.import_job import ImportJob
-from core.engine import ImportEngine
+for log in pipeline_service.import_file("data.csv"):
+    print(log)
+```
 
-job = ImportJob(
-    source_plugin="csv",
-    destination_loader="sqlite",
-    source_config={
-        "file_path": "data/users.csv"
-    },
-    destination_config={
-        "connection_string": "sqlite:///data/test.db"
-    },
-    table_name="users"
-)
+This allows:
 
-engine = ImportEngine()
+* Real-time progress updates
+* GUI integration
+* CLI output streaming
 
-engine.run(job)
+---
+
+# Pipeline Results
+
+Pipeline executions generate structured results containing:
+
+* Success status
+* Execution time
+* Error information
+* Future metrics such as processed records
+
+Example:
+
+```
+PipelineResult
 ```
 
 ---
 
-# Plugins disponibles
+# Extensibility
 
-Actualmente implementados:
+The system is designed to support future extensions such as:
 
-| Plugin | Estado |
-| ------ | ------ |
-| CSV    | ✔      |
-
-Plugins planeados:
-
-* Excel
-* JSON
-* API REST
-* PostgreSQL source
-* Parquet
+* Plugin-based pipelines
+* Additional file detectors
+* Multiple execution engines
+* DAG-based pipeline workflows
+* Remote data sources
 
 ---
 
-# Loaders disponibles
+# Running the Project
 
-Actualmente implementados:
-
-| Loader | Estado |
-| ------ | ------ |
-| SQLite | ✔      |
-
-Loaders planeados:
-
-* PostgreSQL
-* MySQL
-* DuckDB
-* Parquet
-* Data Warehouse
-
----
-
-# Características del proyecto
-
-* Arquitectura modular
-* Sistema de plugins extensible
-* Procesamiento por batches
-* Soporte para datasets grandes
-* Seguimiento de progreso
-* Preparado para GUI futura
-
----
-
-# Roadmap
-
-Fases planeadas del proyecto:
-
-### Fase 1
-
-Arquitectura base
-
-* plugin system
-* loader system
-* import engine
-* CSV → SQLite
-
-### Fase 2
-
-Nuevas fuentes
-
-* Excel
-* JSON
-* APIs
-
-### Fase 3
-
-Nuevos destinos
-
-* PostgreSQL
-* MySQL
-* DuckDB
-
-### Fase 4
-
-Interfaz gráfica
-
-* GUI de conexión
-* selección de fuentes
-* monitor de progreso
-
----
-
-# Desarrollo
-
-Clonar el repositorio:
+Create a virtual environment:
 
 ```
-git clone https://github.com/Azrael-Hagen/universal_data_importer.git
+python -m venv .venv
 ```
 
-Entrar al proyecto:
+Activate it:
+
+Windows:
 
 ```
-cd universal_data_importer
+.venv\Scripts\activate
 ```
 
-Ejecutar pruebas simples:
+Install dependencies:
 
 ```
-python tools/test_csv_plugin.py
-python tools/test_sqlite_loader.py
+pip install -r requirements.txt
+```
+
+Run the application:
+
+```
+python app/main.py
 ```
 
 ---
 
-# Contribuciones
+# Development Principles
 
-Las contribuciones son bienvenidas.
-
-Ideas para contribuir:
-
-* nuevos plugins de fuente
-* nuevos loaders
-* optimizaciones de rendimiento
-* mejoras de GUI
-* documentación
-
----
-
-# Licencia
-
-MIT License
+This project follows several
