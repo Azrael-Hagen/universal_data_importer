@@ -5,3 +5,4 @@ class FileType(str, Enum):
     CSV = "csv"
     EXCEL = "excel"
     JSON = "json"
+    XML = "xml"

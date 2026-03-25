@@ -5,6 +5,7 @@ import time
 from core.models.pipeline_result import PipelineResult
 from core.detectors.file_detector import detect_file_type
 from core.models.datasource import DataSource
+from core.models.file_type import FileType
 from core.models.pipeline import Pipeline
 from core.executors.pipeline_executor import PipelineExecutor
 from infrastructure.logger import get_logger
@@ -19,10 +20,10 @@ class PipelineService:
 
     logger = get_logger(__name__)
     
-    PIPELINE_MAP: dict[str, str] = {
-        "csv": "tap-csv",
-        "excel": "tap-excel",
-        "json": "tap-json",
+    PIPELINE_MAP: dict[FileType, str] = {
+        FileType.CSV: "tap-csv",
+        FileType.EXCEL: "tap-excel",
+        FileType.JSON: "tap-json",
     }
 
     DEFAULT_TARGET = "target-jsonl"
@@ -61,9 +62,11 @@ class PipelineService:
         if not file_path.is_file():
             raise ValueError(f"Not a valid file: {path}")
 
-        file_type = detect_file_type(path)
+        detected = detect_file_type(path)
 
-        if file_type == "unknown":
+        try:
+            file_type = FileType(detected)
+        except ValueError:
             raise ValueError(f"Unsupported file type: {path}")
 
         return DataSource(path, file_type)
@@ -114,7 +117,7 @@ class PipelineService:
     # Extensibility
     # -----------------------------------------
 
-    def register_pipeline(self, file_type: str, tap: str):
+    def register_pipeline(self, file_type: FileType, tap: str):
 
         self.PIPELINE_MAP[file_type] = tap
         self.logger.info(f"Registered pipeline for {file_type} using {tap}")

@@ -60,7 +60,7 @@ class DataSource:
 
         return {
             "path": self.path,
-            "file_type": self.file_type,
+            "file_type": self.file_type.value,
             "metadata": self.metadata,
             "config": self.config,
         }
